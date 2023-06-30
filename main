@@ -1,0 +1,76 @@
+!pip install pyhomebroker
+
+from google.colab import auth
+
+auth.authenticate_user()
+import locale
+from pyhomebroker import HomeBroker
+import time
+import pandas as pd
+import gspread
+from google.auth import default
+creds, _ = default()
+
+#spreadsheet
+gc = gspread.authorize(creds)
+
+sg= gc.open("inversiones")
+
+worksheet = sg.sheet1
+
+# User and broker validation
+broker = "broker number"
+dni = "personal id"
+user = "user"
+password = "broker password"
+
+# API variables
+
+hb = HomeBroker(int(broker))
+hb.auth.login(dni=dni, user=user, password=password, raise_exception=True)
+hb.online.connect()
+
+
+# List of stocks tickers (example)
+tickers=["CEPU","GLOB","IRSA","MELI","MSFT","TGNO4", "VIST",
+         "YPFD","GD30","GD30C","GD30D","AL30","AL30C","AL30D","S30J3","SJ3C"]
+
+def get_intraday_history(ticker):
+    # Get the intraday history for the given stock
+    x = hb.history.get_intraday_history(ticker)[-1:]
+    return x
+
+def get_intraday_history_for_tickers(tickers):
+    # Get the intraday history for a list of stocks
+    resultado = []
+    for ticker in tickers:
+        x = get_intraday_history(ticker)
+        resultado.append(x)
+    return resultado
+
+# Google sheet writing function
+def write_to_sheet(data):
+    worksheet.clear()
+    worksheet.update([data.columns.values.tolist()] + data.values.tolist())
+
+# data cleaning for having same google sheet format
+def formato_coma(valor):
+    return f'{valor:,.2f}'.replace(',', 'X').replace('.', ',').replace('X', '.')
+
+locale.setlocale(locale.LC_ALL, '')
+
+#loop for having a continuous pricing update
+while True:
+    try:
+        dato = pd.concat(get_intraday_history_for_tickers(tickers))
+        dato_formateado = dato.applymap(formato_coma)
+        print(dato_formateado)
+        print("Online", time.strftime("%H:%M:%S"))
+        write_to_sheet(dato_formateado)
+        time.sleep(30)
+    except KeyboardInterrupt:
+        print("Keyboard interrupt received. Exiting...")
+        break
+    except hb.ConnectionError as e:
+        print("Connection error", e)
+        hb.disconnect()
